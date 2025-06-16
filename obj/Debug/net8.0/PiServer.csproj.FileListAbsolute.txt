@@ -57,3 +57,4 @@ C:\c#\PiServerNew\obj\Debug\net8.0\refint\PiServer.dll
 C:\c#\PiServerNew\obj\Debug\net8.0\PiServer.pdb
 C:\c#\PiServerNew\obj\Debug\net8.0\PiServer.genruntimeconfig.cache
 C:\c#\PiServerNew\obj\Debug\net8.0\ref\PiServer.dll
+C:\c#\PiServerNew\obj\Debug\net8.0\PiServer.sourcelink.json

@@ -38,7 +38,7 @@ namespace PiServer.Models
     public class NewChannelRequest
     {
         public string Name { get; set; } = "default_channel";
-        
+
         [JsonConverter(typeof(JsonStringEnumConverter))] // ← Добавьте это
         public ChannelStrategy Strategy { get; set; } = ChannelStrategy.PassiveEnvironment;
     }
@@ -50,11 +50,16 @@ namespace PiServer.Models
     }
 
 
+
     public class ProcessResponse
     {
-        public string? Diagram { get; set; }
+        public bool Success { get; set; }
         public string? Result { get; set; }
-        public bool Success { get; set; } = true;
         public string? Error { get; set; }
+        public List<object> Results { get; set; } = new();
+        public string? Diagram { get; set; }  // ← Добавь эту строку
     }
+
+
+
 }

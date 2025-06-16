@@ -4,11 +4,12 @@ using PiServer.Services;
 
 namespace PiServer.Models
 {
-    public class SendProcess : IProcess
+    
+public class SendProcess : IProcess
     {
         public string ChannelName { get; }
         public string Message { get; }
-        public IProcess? NextProcess { get; } // Делаем nullable
+        public IProcess? NextProcess { get; }  // Nullable, чтобы можно было не передавать
 
         public SendProcess(string channelName, string message, IProcess? nextProcess = null)
         {
@@ -20,13 +21,18 @@ namespace PiServer.Models
         public async Task ExecuteAsync(EnvironmentManager environment)
         {
             var channel = environment.GetChannel(ChannelName);
-            if (channel == null) throw new InvalidOperationException($"Channel {ChannelName} not found");
+            if (channel == null)
+                throw new InvalidOperationException($"Channel {ChannelName} not found");
+
+            environment.LogMessage($"[{DateTime.Now:HH:mm:ss.fff}] SEND on {ChannelName}: {Message}");
 
             await channel.SendAsync(Message);
+
             if (NextProcess != null)
             {
                 await NextProcess.ExecuteAsync(environment);
             }
         }
     }
+
 }

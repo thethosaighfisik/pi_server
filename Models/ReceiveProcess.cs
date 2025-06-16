@@ -24,12 +24,13 @@ namespace PiServer.Models
             _ct = ct;
         }
 
+        
         public async Task ExecuteAsync(EnvironmentManager environment)
         {
             if (environment is null)
                 throw new ArgumentNullException(nameof(environment));
 
-            var channel = environment.GetChannel(_channelName) 
+            var channel = environment.GetChannel(_channelName)
                 ?? throw new InvalidOperationException($"Channel {_channelName} not found");
 
             while (!_ct.IsCancellationRequested)
@@ -37,9 +38,11 @@ namespace PiServer.Models
                 try
                 {
                     var message = await channel.ReceiveAsync(_ct).ConfigureAwait(false);
-                    
+
                     if (!string.IsNullOrEmpty(message) && MatchesFilter(message))
                     {
+                        environment.LogMessage($"[{DateTime.Now:HH:mm:ss.fff}] RECEIVE from {_channelName}: {message}");
+
                         var nextProcess = _continuation(message);
                         await nextProcess.ExecuteAsync(environment).ConfigureAwait(false);
                     }

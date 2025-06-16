@@ -180,20 +180,85 @@
 
 
 
+
+// var builder = WebApplication.CreateBuilder(args);
+
+// // Минимально необходимые сервисы
+// builder.Services.AddControllers();
+// builder.Services.AddSingleton<EnvironmentManager>();
+// builder.Services.AddSingleton<ProcessService>();
+
+// var app = builder.Build();
+
+// app.UseHttpsRedirection();
+// app.UseAuthorization();
+// app.MapControllers();
+
+// // Явно указываем URL и отключаем HTTPS для простоты
+// app.Run("http://0.0.0.0:5000");
+
+
+
+
+
+// using Microsoft.AspNetCore.Builder;
+// using Microsoft.Extensions.DependencyInjection;
+// using Microsoft.Extensions.Hosting;
+// using System.Text.Json;
+
+// var builder = WebApplication.CreateBuilder(args);
+
+// // Добавляем сервисы
+// builder.Services.AddControllers()
+//     .AddJsonOptions(options =>
+//     {
+//         options.JsonSerializerOptions.PropertyNamingPolicy = JsonNamingPolicy.CamelCase;
+//         options.JsonSerializerOptions.WriteIndented = true;
+//     });
+
+// builder.Services.AddSingleton<EnvironmentManager>();
+
+// var app = builder.Build();
+
+// if (app.Environment.IsDevelopment())
+// {
+//     app.UseDeveloperExceptionPage();
+// }
+
+// app.UseRouting();
+// app.MapControllers();
+
+// app.Run();
+
+
+using Microsoft.AspNetCore.Builder;
+using Microsoft.Extensions.DependencyInjection;
 using PiServer.Services;
+using PiServer.Storage;
 
 var builder = WebApplication.CreateBuilder(args);
 
-// Минимально необходимые сервисы
+// Добавляем контроллеры
 builder.Services.AddControllers();
+
+// Добавляем сессии
+builder.Services.AddDistributedMemoryCache();
+builder.Services.AddSession(options =>
+{
+    options.IdleTimeout = TimeSpan.FromMinutes(30);
+    options.Cookie.HttpOnly = true;
+    options.Cookie.IsEssential = true;
+});
+
+// Добавляем EnvironmentManager и InMemoryProcessStorage как singleton
 builder.Services.AddSingleton<EnvironmentManager>();
-builder.Services.AddSingleton<ProcessService>();
+builder.Services.AddSingleton<ISessionProcessStorage, InMemoryProcessStorage>();
 
 var app = builder.Build();
 
-app.UseHttpsRedirection();
-app.UseAuthorization();
+// Используем сессии
+app.UseSession();
+
 app.MapControllers();
 
-// Явно указываем URL и отключаем HTTPS для простоты
-app.Run("http://0.0.0.0:5000");
+app.Run();

@@ -4,17 +4,20 @@
 /YourProject
 │
 ├── Program.cs
-├── Startup.cs
+├
 │
 ├── Controllers/
-│   └── PiController.cs
+│   └── PiCalculusController.cs
 │
 ├── Models/
+|   |-- ApiModels.cs
+|   |-- InactiveProcess.cs
+|   |-- ProcessBuilder.cs
 │   ├── IProcess.cs
 │   ├── SendProcess.cs
 │   ├── ReceiveProcess.cs
 │   ├── ParallelProcess.cs
-│   ├── ReplicatedProcess.cs
+│   ├── ReplicationProcess.cs
 │   ├── NewChannelProcess.cs
 │   ├── Channel.cs
 │   ├── IInteractionStrategy.cs
@@ -24,6 +27,7 @@
 │
 ├── Services/
 │   └── EnvironmentManager.cs
+|   |-- ProcessService.cs
 │
 └── PiCalculus/
     ├── ProcessFactory.cs

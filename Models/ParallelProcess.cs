@@ -21,12 +21,15 @@ namespace PiServer.Models
 
         public async Task ExecuteAsync(EnvironmentManager environment)
         {
+            environment.LogMessage($"[{DateTime.Now:HH:mm:ss.fff}] PARALLEL START");
             var tasks = _processes
                 .Where(p => p != null)
                 .Select(p => p.ExecuteAsync(environment))
                 .ToList();
 
             await Task.WhenAll(tasks);
+            environment.LogMessage($"[{DateTime.Now:HH:mm:ss.fff}] PARALLEL END");
+
         }
 
         // Добавляем удобные методы для работы

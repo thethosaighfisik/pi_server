@@ -1,13 +1,10 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Threading;
 using System.Threading.Tasks;
 using Newtonsoft.Json;
 using PiServer.Models;
-using System.Text.Json.Serialization;
-
-
-
 
 namespace PiServer.Services
 {
@@ -22,7 +19,17 @@ namespace PiServer.Services
             _builder = new ProcessBuilder(_environment);
         }
 
+        public async Task AddReplicationAsync(Func<IProcess> processFactory)
+        {
+            _builder.AddReplication(processFactory);
+            await Task.CompletedTask;
+        }
 
+        public async Task AddNewChannelAsync(string name, ChannelStrategy strategy)
+        {
+            _builder.AddNewChannel(name, strategy);
+            await Task.CompletedTask;
+        }
         public async Task<ProcessResponse> AddSendAsync(SendRequest request)
         {
             if (request == null) throw new ArgumentNullException(nameof(request));
@@ -42,10 +49,9 @@ namespace PiServer.Services
 
                 _builder.AddSend(channelName, request.Message ?? string.Empty, continuation);
 
-                // Фактически отправляем сообщение в канал
                 await _environment.TransferAsync(channelName, request.Message ?? string.Empty);
 
-                return SuccessResponse(_builder.GetProcessDiagram());
+                return SuccessResponse(result: _builder.GetProcessDiagram());
             }
             catch (Exception ex)
             {
@@ -53,131 +59,125 @@ namespace PiServer.Services
             }
         }
 
-        
-
-
         public async Task<ProcessResponse> AddReceiveAsync(ReceiveRequest request)
         {
             if (request == null) throw new ArgumentNullException(nameof(request));
 
             try
             {
+                var channelName = request.Channel ?? "default_channel";
+                var channel = _environment.GetOrCreateChannel(channelName);
 
-                var channel = _environment.GetOrCreateChannel(request.Channel ?? "default_channel");
-
-                Console.WriteLine($"[DEBUG] Messages in queue before DequeueAll: {channel.PeekAll().Count}");
+                IProcess? continuation = null;
+                if (request.Continuation != null)
+                {
+                    var continuationBuilder = new ProcessBuilder(_environment);
+                    await BuildProcessFromRequest(continuationBuilder, request.Continuation);
+                    continuation = continuationBuilder.GetCurrentProcess();
+                }
 
                 if (!request.WaitForMessage)
                 {
                     var messages = channel.DequeueAll(request.Filter);
-                    Console.WriteLine($"[DEBUG] Messages dequeued: {string.Join(", ", messages)}");
-                    return new ProcessResponse
-                    {
-                        Diagram = $"ReceiveAll({request.Channel})",
-                        Result = string.Join("; ", messages),
-                        Success = true
-                    };
+
+                    _builder.AddReceive(
+                        channel: channelName,
+                        filter: request.Filter ?? string.Empty,
+                        handler: async msg =>
+                        {
+                            if (continuation != null)
+                                await continuation.ExecuteAsync(_environment);
+                        });
+
+                    return SuccessResponse(result: string.Join("; ", messages), diagram: _builder.GetProcessDiagram());
                 }
 
-                // Если не нужно ждать — отдаем всё, что есть
-                if (!request.WaitForMessage)
-                {
-                    var messages = channel.DequeueAll(request.Filter);
-                    return new ProcessResponse
+                _builder.AddReceive(
+                    channel: channelName,
+                    filter: request.Filter ?? string.Empty,
+                    continuation: msg =>
                     {
-                        Diagram = $"ReceiveAll({request.Channel})",
-                        Result = string.Join("; ", messages),
-                        Success = true
-                    };
-                }
+                        if (continuation != null)
+                            _ = continuation.ExecuteAsync(_environment);
+                        return continuation;
+                    });
 
-                // Стандартное поведение с ожиданием
                 using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
                 string? receivedMessage = await channel.ReceiveAsync(cts.Token);
 
-                if (request.Filter != null && receivedMessage != null &&
+                if (receivedMessage != null &&
+                    request.Filter != null &&
                     !receivedMessage.Contains(request.Filter))
                 {
                     receivedMessage = null;
                 }
 
-                return new ProcessResponse
-                {
-                    Diagram = $"Receive({request.Channel})",
-                    Result = receivedMessage,
-                    Success = true
-                };
+                return SuccessResponse(result: receivedMessage, diagram: _builder.GetProcessDiagram());
             }
             catch (OperationCanceledException)
             {
-                return new ProcessResponse
-                {
-                    Diagram = $"Receive({request.Channel})",
-                    Result = null,
-                    Success = false,
-                    Error = "Receive timeout"
-                };
+                return ErrorResponse("Receive timeout");
             }
             catch (Exception ex)
             {
-                return new ProcessResponse
+                return ErrorResponse(ex.Message);
+            }
+        }
+
+        public async Task<ProcessResponse> AddParallelAsync(ParallelRequest request)
+        {
+            var results = new List<object>();
+
+            foreach (var process in request.Processes)
+            {
+                var json = process.Data.GetRawText();
+
+                switch (process.Type?.ToLowerInvariant())
                 {
-                    Diagram = $"Receive({request.Channel})",
-                    Result = null,
-                    Success = false,
-                    Error = ex.Message
-                };
+                    case "send":
+                        var send = System.Text.Json.JsonSerializer.Deserialize<SendRequest>(json);
+                        var sendResponse = await AddSendAsync(send);
+                        results.Add(new
+                        {
+                            processId = Guid.NewGuid(),
+                            type = "send",
+                            channel = send.Channel,
+                            message = sendResponse?.Result ?? "N/A",
+                            status = sendResponse?.Success == true ? "sent" : "failed",
+                            timestamp = DateTime.UtcNow
+                        });
+                        break;
+
+                    case "receive":
+                        var receive = System.Text.Json.JsonSerializer.Deserialize<ReceiveRequest>(json);
+                        var receiveResponse = await AddReceiveAsync(receive);
+                        results.Add(new
+                        {
+                            processId = Guid.NewGuid(),
+                            type = "receive",
+                            channel = receive.Channel,
+                            message = receiveResponse?.Result ?? "N/A",
+                            status = receiveResponse?.Success == true ? "received" : "timeout",
+                            timestamp = DateTime.UtcNow
+                        });
+                        break;
+
+                    case "parallel":
+                        var parallel = System.Text.Json.JsonSerializer.Deserialize<ParallelRequest>(json);
+                        var parallelResponse = await AddParallelAsync(parallel);
+                        if (parallelResponse?.Results != null)
+                        {
+                            results.AddRange(parallelResponse.Results);
+                        }
+                        break;
+
+                    default:
+                        return ErrorResponse($"Unknown process type: {process.Type}");
+                }
             }
 
+            return SuccessResponse(results: results);
         }
-
-
-
-
-
-
-
-
-
-
-
-     public async Task<ProcessResponse> AddParallelAsync(ParallelRequest request)
-{
-    foreach (var process in request.Processes)
-    {
-        var json = process.Data.GetRawText();
-
-        switch (process.Type?.ToLowerInvariant())
-        {
-            case "send":
-                var send = System.Text.Json.JsonSerializer.Deserialize<SendRequest>(json);
-                await AddSendAsync(send);  // вызов напрямую, без _processService
-                break;
-
-            case "receive":
-                var receive = System.Text.Json.JsonSerializer.Deserialize<ReceiveRequest>(json);
-                await AddReceiveAsync(receive);
-                break;
-
-            case "parallel":
-                var parallel = System.Text.Json.JsonSerializer.Deserialize<ParallelRequest>(json);
-                await AddParallelAsync(parallel);
-                break;
-
-            default:
-                return new ProcessResponse
-                {
-                    Success = false,
-                    Error = $"Unknown process type: {process.Type}"
-                };
-        }
-    }
-
-    return new ProcessResponse { Success = true, Result = "Parallel processes added" };
-}
-
-
-
 
         public async Task<ProcessResponse> AddReplicationAsync(ReplicationRequest request)
         {
@@ -191,7 +191,7 @@ namespace PiServer.Services
                 var templateProcess = templateBuilder.GetCurrentProcess();
                 _builder.AddReplication(() => templateProcess);
 
-                return SuccessResponse(_builder.GetProcessDiagram());
+                return SuccessResponse(result: _builder.GetProcessDiagram());
             }
             catch (Exception ex)
             {
@@ -209,7 +209,7 @@ namespace PiServer.Services
                     name: request.Name ?? "default_channel",
                     strategy: request.Strategy
                 );
-                return SuccessResponse(_builder.GetProcessDiagram());
+                return SuccessResponse(result: _builder.GetProcessDiagram());
             }
             catch (Exception ex)
             {
@@ -222,7 +222,7 @@ namespace PiServer.Services
             try
             {
                 await _builder.ExecuteAsync();
-                return SuccessResponse(_builder.GetProcessDiagram(), "Execution completed");
+                return SuccessResponse(result: "Execution completed");
             }
             catch (Exception ex)
             {
@@ -233,12 +233,12 @@ namespace PiServer.Services
         public ProcessResponse Reset()
         {
             _builder = new ProcessBuilder(_environment);
-            return SuccessResponse(_builder.GetProcessDiagram(), "Process reset");
+            return SuccessResponse(result: "Process reset");
         }
 
         public ProcessResponse GetCurrentDiagram()
         {
-            return SuccessResponse(_builder.GetProcessDiagram(), "Current diagram");
+            return SuccessResponse(result: "Current diagram");
         }
 
         private async Task BuildProcessFromRequest(ProcessBuilder builder, ProcessRequest request)
@@ -278,14 +278,15 @@ namespace PiServer.Services
             }
         }
 
-        private ProcessResponse SuccessResponse(string diagram, string? result = null)
+        private ProcessResponse SuccessResponse(string? diagram = null, string? result = null, List<object>? results = null)
         {
             return new ProcessResponse
             {
-                Diagram = diagram ?? string.Empty,
-                Result = result,
+                Diagram = diagram ?? _builder.GetProcessDiagram(),
+                Result = result ?? "",
+                Results = results ?? new List<object>(),
                 Success = true,
-                Error = null
+                Error = ""
             };
         }
 
@@ -294,7 +295,8 @@ namespace PiServer.Services
             return new ProcessResponse
             {
                 Diagram = diagram ?? _builder.GetProcessDiagram(),
-                Result = null,
+                Result = "",
+                Results = new List<object>(),
                 Success = false,
                 Error = error ?? "Unknown error"
             };
