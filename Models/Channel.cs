@@ -16,23 +16,6 @@ namespace PiServer.Models
         }
         
 
-        public string? TryReceive()
-        {
-            return _messages.TryDequeue(out var msg) ? msg : null;
-        }
-
-
-
-
-
-        public List<string> PeekAll()
-        {
-            return _messages.ToList();
-        }
-
-
-
-
         public List<string> DequeueAll(string? filter = null)
         {
             var result = new List<string>();
@@ -60,10 +43,6 @@ namespace PiServer.Models
             return result;
         }
 
-
-
-
-
         public Task SendAsync(string message)
         {
             if (string.IsNullOrEmpty(message))
@@ -77,14 +56,22 @@ namespace PiServer.Models
         }
 
 
-
-
         public async Task<string?> ReceiveAsync(CancellationToken ct = default)
         {
-            await _messageAvailable.WaitAsync(ct);
+            try
+            {
+                await _messageAvailable.WaitAsync(ct);
+            }
+            catch (OperationCanceledException)
+            {
+                return null;
+            }
+
             _messages.TryDequeue(out var message);
             return message;
         }
+
+
 
         public EnvironmentManager? Environment { get; set; }
 

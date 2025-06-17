@@ -18,35 +18,7 @@ namespace PiServer.Services
         private readonly Dictionary<string, Queue<string>> _channelMessages = new();
 
         
-        // Добавляем nullable для события
         public event Action<string>? MessageLogged;
-
-
-
-        // EnvironmentManager.cs
-
-
-        public bool TryReceiveMessage(string channel, out string? message)
-        {
-            if (_channelMessages.TryGetValue(channel, out var queue) && queue.Count > 0)
-            {
-                message = queue.Dequeue();
-                return true;
-            }
-
-            message = null;
-            return false;
-        }
-
-
-        public void EnqueueMessage(string channel, string message)
-        {
-            if (!_channelMessages.ContainsKey(channel))
-                _channelMessages[channel] = new Queue<string>();
-
-            _channelMessages[channel].Enqueue(message);
-        }
-
      
      
 
@@ -90,6 +62,17 @@ namespace PiServer.Services
                     break;
             }
         }
+
+
+        public async Task<string?> ReceiveAsync(string channelName, CancellationToken ct = default)
+        {
+            var channel = GetOrCreateChannel(channelName);
+            LogMessage($"[{DateTime.Now:HH:mm:ss.fff}] WAITING on {channelName}");
+            var message = await channel.ReceiveAsync(ct);
+            LogMessage($"[{DateTime.Now:HH:mm:ss.fff}] RECEIVED from {channelName}: {message}");
+            return message;
+        }
+
 
         public Channel? GetChannel(string name)
         {

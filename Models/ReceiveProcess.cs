@@ -23,46 +23,50 @@ namespace PiServer.Models
             _continuation = continuation ?? throw new ArgumentNullException(nameof(continuation));
             _ct = ct;
         }
-
+        
         
         public async Task ExecuteAsync(EnvironmentManager environment)
         {
-            if (environment is null)
-                throw new ArgumentNullException(nameof(environment));
+            if (environment == null) throw new ArgumentNullException(nameof(environment));
 
-            var channel = environment.GetChannel(_channelName)
-                ?? throw new InvalidOperationException($"Channel {_channelName} not found");
+            var channel = environment.GetOrCreateChannel(_channelName);
 
-            while (!_ct.IsCancellationRequested)
+            using var cts = CancellationTokenSource.CreateLinkedTokenSource(_ct);
+            cts.CancelAfter(TimeSpan.FromSeconds(10));  // Таймаут 10 секунд
+
+            while (!cts.Token.IsCancellationRequested)
             {
                 try
                 {
-                    var message = await channel.ReceiveAsync(_ct).ConfigureAwait(false);
-
+                    var message = await channel.ReceiveAsync(cts.Token).ConfigureAwait(false);
                     if (!string.IsNullOrEmpty(message) && MatchesFilter(message))
                     {
                         environment.LogMessage($"[{DateTime.Now:HH:mm:ss.fff}] RECEIVE from {_channelName}: {message}");
 
                         var nextProcess = _continuation(message);
                         await nextProcess.ExecuteAsync(environment).ConfigureAwait(false);
+                        return; // Можно завершить после первого успешного приема
                     }
                 }
                 catch (OperationCanceledException)
                 {
-                    // Корректная обработка отмены операции
                     break;
                 }
                 catch (Exception ex)
                 {
-                    Console.WriteLine($"Receive error: {ex.Message}");
-                    await Task.Delay(1000, _ct).ConfigureAwait(false);
+                    environment.LogMessage($"Receive error: {ex.Message}");
+                    await Task.Delay(1000, cts.Token).ConfigureAwait(false);
                 }
+                break;
             }
+
+            environment.LogMessage($"Receive on channel {_channelName} timed out or was cancelled.");
         }
+
 
         private bool MatchesFilter(string message)
         {
-            return string.IsNullOrEmpty(_filter) || 
+            return string.IsNullOrEmpty(_filter) ||
                   (message?.Contains(_filter, StringComparison.Ordinal) == true);
         }
     }

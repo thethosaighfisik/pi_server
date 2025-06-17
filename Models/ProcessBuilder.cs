@@ -16,16 +16,16 @@ namespace PiServer.Models
         
         
 
+
         public ProcessBuilder(EnvironmentManager env)
         {
             _env = env ?? throw new ArgumentNullException(nameof(env));
-            _currentProcess = new InactiveProcess();
+            _currentProcess = null; // Не new InactiveProcess()
 
             _env.MessageLogged += message => _executionLog.AppendLine(message);
         }
 
-        
-        
+
         public IProcess GetCurrentProcess() => _currentProcess;
 
 
@@ -49,8 +49,18 @@ namespace PiServer.Models
                         continuation: _ => dto.Continuation != null ? BuildFromDto(dto.Continuation) : new InactiveProcess());
 
                 case "parallel":
-                    var processes = dto.Processes?.Select(BuildFromDto).ToArray() ?? Array.Empty<IProcess>();
-                    return new ParallelProcess(processes);
+                    var processes = dto.Processes?
+                    .Select(BuildFromDto)
+                    .Where(p => p != null && !(p is InactiveProcess))
+                    .ToArray() ?? Array.Empty<IProcess>();
+
+                return processes.Length switch
+                {
+                    0 => new InactiveProcess(),
+                    1 => processes[0],
+                    _ => new ParallelProcess(processes)
+                };
+
 
                 case "inactive":
                     return new InactiveProcess();
@@ -63,25 +73,30 @@ namespace PiServer.Models
             }
         }
 
-        // public ProcessBuilder AddSend(string channel, string message, IProcess? nextProcess = null)
-        // {
-        //     if (string.IsNullOrEmpty(channel)) throw new ArgumentException("Channel cannot be null or empty");
-        //     if (message == null) throw new ArgumentNullException(nameof(message));
-
-        //     _currentProcess = new SendProcess(channel, message, nextProcess ?? _currentProcess);
-        //     return this;
-        // }
 
 
         public void AddSend(string channel, string message, IProcess? nextProcess = null)
         {
             var send = new SendProcess(channel, message, nextProcess ?? new InactiveProcess());
 
-            if (_currentProcess is InactiveProcess)
+            if (_currentProcess == null || _currentProcess is InactiveProcess)
+            {
                 _currentProcess = send;
+            }
             else
-                _currentProcess = new ParallelProcess(new[] { _currentProcess, send });
+            {
+                var processes = new List<IProcess>();
+
+                // Добавляем существующий процесс, если он не Inactive
+                if (_currentProcess != null && !(_currentProcess is InactiveProcess))
+                    processes.Add(_currentProcess);
+
+                processes.Add(send);
+
+                _currentProcess = new ParallelProcess(processes.ToArray());
+            }
         }
+
 
 
         public ProcessBuilder AddReceive(string channel, string? filter, Action<string> handler)
@@ -117,14 +132,26 @@ namespace PiServer.Models
             return this;
         }
 
+
         public ProcessBuilder AddParallel(params IProcess[]? processes)
         {
-            var validProcesses = processes?.Where(p => p != null).ToArray() ?? Array.Empty<IProcess>();
-            _currentProcess = validProcesses.Length > 0
-                ? new ParallelProcess(validProcesses.Concat(new[] { _currentProcess }).ToArray())
-                : _currentProcess;
+            var validProcesses = (processes ?? Array.Empty<IProcess>())
+                .Where(p => p != null && !(p is InactiveProcess))
+                .ToList();
+
+            if (_currentProcess != null && !(_currentProcess is InactiveProcess))
+                validProcesses.Add(_currentProcess);
+
+            _currentProcess = validProcesses.Count switch
+            {
+                0 => new InactiveProcess(),
+                1 => validProcesses[0],
+                _ => new ParallelProcess(validProcesses.ToArray())
+            };
+
             return this;
         }
+
 
         public ProcessBuilder AddInactive()
         {
@@ -157,10 +184,6 @@ namespace PiServer.Models
             _executionLog.AppendLine($"[{DateTime.Now:HH:mm:ss.fff}] EXECUTION COMPLETED");
         }
 
-        public string GetExecutionLog()
-        {
-            return _executionLog.ToString();
-        }
 
         public string GetProcessDiagram()
         {
@@ -169,7 +192,8 @@ namespace PiServer.Models
 
             static string BuildDiagram(IProcess? process, int indent, HashSet<IProcess> visited)
             {
-                if (process == null) return new string(' ', indent * 2) + "null";
+                if (process == null || process is InactiveProcess)
+                    return new string(' ', indent * 2) + "InactiveProcess";
                 if (visited.Contains(process)) return new string(' ', indent * 2) + "... (recursion)";
 
                 visited.Add(process);

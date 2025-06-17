@@ -13,7 +13,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyCompanyAttribute("PiServer")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Debug")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+6cbb2360cbaa8500ebf5d16aaeb8574b2463f2c4")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+e9b4e85e00b6c0fb460e445f4037228b2a1c9c1f")]
 [assembly: System.Reflection.AssemblyProductAttribute("PiServer")]
 [assembly: System.Reflection.AssemblyTitleAttribute("PiServer")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]
