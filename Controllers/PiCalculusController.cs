@@ -129,7 +129,9 @@ namespace PiServer.Controllers
                 return Ok(new
                 {
                     Diagram = _builder.GetProcessDiagram(),
-                    Log = _log.ToString()
+                    Log = _log.ToString(),
+                    Messages = _builder.GetMessageLogs() 
+
                 });
             }
             catch (Exception ex)

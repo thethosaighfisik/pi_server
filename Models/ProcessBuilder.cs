@@ -26,6 +26,11 @@ namespace PiServer.Models
         }
 
 
+        public List<string> GetMessageLogs()
+        {
+            return _env.MessageLogs;
+        }
+
         public IProcess GetCurrentProcess() => _currentProcess;
 
 
